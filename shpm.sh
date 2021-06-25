@@ -2,6 +2,13 @@
 
 source ./bootstrap.sh
 
+SHPM_LOG_DISABLED="$FALSE"
+
+SCRIPT_NAME=$ARTIFACT_ID # from pom.sh
+
+G_SHPMLOG_TAB="  "
+G_SHPMLOG_INDENT=""
+
 #-----------------------------------
 evict_catastrophic_remove() {
 	# Evict catastrophic rm's when ROOT_DIR_PATH not set 
@@ -23,7 +30,7 @@ create_path_if_not_exists() {
 	fi 
 
 	if [[ ! -d "$PATH_TARGET" ]]; then
-	   shpm_log "Creating $PATH_TARGET ..."
+	   shpm_log "- Creating $PATH_TARGET ..."
 	   mkdir -p "$PATH_TARGET"
 	fi
 }
@@ -41,10 +48,15 @@ remove_folder_if_exists() {
 	fi 
 	
 	if [[ -d "$PATH_TO_FOLDER" ]]; then
-		shpm_log "Removing folder $PATH_TO_FOLDER ..."
+		shpm_log "- Exec secure remove of folder $PATH_TO_FOLDER ..."
 	
-		# SECURE rm -rf: move content to TMP_DIR, and execute rm -rf only inside TMP_DIR
-		mv "$PATH_TO_FOLDER" "$TMP_DIR_PATH"
+		##
+		 # SECURE rm -rf: move content to TMP_DIR, and execute rm -rf only inside TMP_DIR
+		 ##
+		# If a folder not already in tmp dir 
+		if [[ "$TMP_DIR_PATH/"$( basename "$PATH_TO_FOLDER") != "$PATH_TO_FOLDER" ]]; then
+			mv "$PATH_TO_FOLDER" "$TMP_DIR_PATH"
+		fi
 		
 		cd "$TMP_DIR_PATH" || exit
 		
@@ -71,10 +83,12 @@ remove_file_if_exists() {
 	fi 
 	
 	if [[ -f "$PATH_TO_FILE" ]]; then
-		shpm_log "Removing file $PATH_TO_FILE ..."
+		shpm_log "- Exec secure remove of file $PATH_TO_FILE ..."
 	
 		# SECURE rm -rf: move content to TMP_DIR, and execute rm -rf only inside TMP_DIR
-		mv "$PATH_TO_FILE" "$TMP_DIR_PATH"
+		if [[ "$PATH_TO_FILE" != "$TMP_DIR_PATH"/$(basename "$PATH_TO_FILE") ]]; then
+			mv "$PATH_TO_FILE" "$TMP_DIR_PATH"
+		fi
 		
 		cd "$TMP_DIR_PATH" || exit
 		
@@ -88,14 +102,45 @@ remove_file_if_exists() {
 	fi
 }
 
+increase_g_indent() {
+	G_SHPMLOG_INDENT="$G_SHPMLOG_INDENT""$G_SHPMLOG_TAB"
+}
+
+decrease_g_indent() {
+	local END_POS
+	END_POS=$( echo "${#G_SHPMLOG_INDENT} - ${#G_SHPMLOG_TAB}" | bc )
+	G_SHPMLOG_INDENT="${G_SHPMLOG_INDENT:0:$END_POS}"
+}
+
+reset_g_indent() {
+	G_SHPMLOG_INDENT=""
+}
+
+set_g_indent() {
+	G_SHPMLOG_INDENT="$1"
+}
+
 shpm_log() {
-	echo "$1"
+	local MSG=$1
+	local COLOR=$2
+	
+    if [[ "$SHPM_LOG_DISABLED" != "$TRUE" ]]; then
+		if [[ "$COLOR" == "red" ]]; then
+			echo -e "${G_SHPMLOG_INDENT}${ECHO_COLOR_RED}$MSG${ECHO_COLOR_NC}"			
+		elif [[ "$COLOR" == "green" ]]; then
+			echo -e "${G_SHPMLOG_INDENT}${ECHO_COLOR_GREEN}$MSG${ECHO_COLOR_NC}"		
+		elif [[ "$COLOR" == "yellow" ]]; then
+			echo -e "${G_SHPMLOG_INDENT}${ECHO_COLOR_YELLOW}$MSG${ECHO_COLOR_NC}"	
+		else
+			echo -e "${G_SHPMLOG_INDENT}$MSG"
+		fi
+	fi
 }
 
 shpm_log_operation() {
-    echo "================================================================"
-	echo "sh-pm: $1"
-	echo "================================================================"
+    shpm_log "================================================================"
+	shpm_log "sh-pm: $1"
+	shpm_log "================================================================"
 }
 
 print_help() {
@@ -109,13 +154,14 @@ print_help() {
 	echo ""
 	echo "OPTIONS:"
     echo "  update                Download dependencies in local repository $LIB_DIR_SUBPATH"
+	echo "  init                  Create expecte sh-pm project structure with files and folders " 
 	echo "  clean                 Clean $TARGET_DIR_PATH folder"
-    echo "  test                  Run shellcheck (if exists) and tests in $TEST_DIR_SUBPATH folder"
-    echo "  build                 Create compressed file in $TARGET_DIR_PATH folder"
-	echo "  install               Install in local repository $LIB_DIR_SUBPATH"            
+    echo "  test                  Run sh-unit tests in $TEST_DIR_SUBPATH folder"
+	echo "  coverage              Show sh-unit test coverage"
+    echo "  lint                  Run ShellCheck (if exists) $SRC_DIR_SUBPATH folder"
+    echo "  package               Create compressed file in $TARGET_DIR_PATH folder"
     echo "  publish               Publish code and builded file in GitHub repositories (remote and local)"
-	echo "  init                  Initialize sh-pm expect files and folders project structure" 
-    echo "  autoupdate            Update itself"
+	echo "  install               Install in local repository $LIB_DIR_SUBPATH"            
 	echo "  uninstall             Remove from local repository $LIB_DIR_SUBPATH"
 	echo ""
 	echo "EXAMPLES:"
@@ -123,7 +169,7 @@ print_help() {
 	echo ""
 	echo "  ./shpm init"
 	echo ""
-	echo "  ./shpm build"
+	echo "  ./shpm package"
 	echo ""
 	echo "  ./shpm publish"
 	echo ""
@@ -133,15 +179,18 @@ run_sh_pm() {
 	local GIT_CMD
 
 	local UPDATE=false
+ 	local INIT=false
+	local LINT=false	
 	local TEST=false
-	local CLEAN=false
-	local BUILD=false
+	local COMPILE=false
+	local PACKAGE=false
 	local INSTALL=false	
 	local PUBLISH=false
 	local SKIP_SHELLCHECK=false
 	local AUTOUPDATE=false
 	local UNINSTALL=false
-	local INIT=false	
+	local COVERAGE=false
+	local CLEAN=false
 	
 	local VERBOSE=false	
 	
@@ -158,6 +207,10 @@ run_sh_pm() {
 				UPDATE="true"
 			fi
 
+			if [[ "$ARG" == "lint" ]];  then
+				LINT="true"
+			fi
+
 			if [[ "$ARG" == "test" ]];  then
 				TEST="true"
 			fi
@@ -166,8 +219,14 @@ run_sh_pm() {
 				CLEAN="true"
 			fi
 		
-			if [[ "$ARG" == "build" ]];  then
-				BUILD="true"
+			if [[ "$ARG" == "compile" ]];  then
+				COMPILE="true"
+				i=$((i+1))
+				SKIP_SHELLCHECK="${!i:-false}"
+			fi
+		
+			if [[ "$ARG" == "package" ]];  then
+				PACKAGE="true"
 				i=$((i+1))
 				SKIP_SHELLCHECK="${!i:-false}"
 			fi
@@ -192,6 +251,9 @@ run_sh_pm() {
 			if [[ "$ARG" == "init" ]];  then
 				INIT="true"
 			fi
+			if [[ "$ARG" == "coverage" ]];  then
+				COVERAGE="true"
+			fi
 			if [[ "$ARG" == "-v" ]];  then
 				VERBOSE="true"
 			fi
@@ -203,15 +265,23 @@ run_sh_pm() {
 	fi
 	
 	if [[ "$CLEAN" == "true" ]];  then
-		clean_release
+		clean_release "$ROOT_DIR_PATH"
+	fi
+	
+	if [[ "$LINT" == "true" ]];  then
+		run_shellcheck 
 	fi
 	
 	if [[ "$TEST" == "true" ]];  then
 		run_all_tests
 	fi
 	
-	if [[ "$BUILD" == "true" ]];  then
-		build_release
+	if [[ "$PACKAGE" == "true" ]];  then
+		run_release_package
+	fi
+	
+	if [[ "$COMPILE" == "true" ]];  then
+		compile_sh_project
 	fi
 	
 	if [[ "$INSTALL" == "true" ]];  then
@@ -232,7 +302,11 @@ run_sh_pm() {
 		
 	if [[ "$INIT" == "true" ]];  then
 		init_project_structure
-	fi			
+	fi
+	
+	if [[ "$COVERAGE" == "true" ]];  then
+		run_coverage_analysis		
+	fi						
 }
 
 remove_tar_gz_from_folder() {
@@ -261,19 +335,21 @@ remove_tar_gz_from_folder() {
 }
 
 clean_release() {
-	local ACTUAL_DIR
+	local PROJECT_DIR
 	local RELEASES_DIR
 	
-	ACTUAL_DIR=$(pwd)
-	RELEASES_DIR="$ROOT_DIR_PATH/releases"
+	PROJECT_DIR="$1"
+	
+	RELEASES_DIR="$PROJECT_DIR/releases"
+	TARGET_DIR="$PROJECT_DIR/$TARGET_DIR_SUBPATH"
 
 	shpm_log_operation "Cleaning release"
 	
-	remove_tar_gz_from_folder "$TARGET_DIR_PATH"
-	
 	remove_tar_gz_from_folder "$RELEASES_DIR"
 		
-	cd "$ACTUAL_DIR" || exit
+	remove_folder_if_exists "$TARGET_DIR"
+	
+	create_path_if_not_exists "$TARGET_DIR"
 }
 
 update_dependencies() {
@@ -306,7 +382,7 @@ uninstall_release () {
 	
 	ACTUAL_DIR="$(pwd)"
 	
-	clean_release
+	clean_release "$ROOT_DIR_PATH"
 	
 	build_release
 	
@@ -364,7 +440,7 @@ git_clone() {
 	
 	GIT_CMD="$(which git)"
 
-	if "$GIT_CMD" clone --branch "$DEP_VERSION" "https://""$REPOSITORY""/""$DEP_ARTIFACT_ID"".git" &>/dev/null ; then
+	if "$GIT_CMD" clone --branch "$DEP_VERSION" "https://""$REPOSITORY""/""$DEP_ARTIFACT_ID"".git"; then
 		return $TRUE
 	fi
 	return $FALSE
@@ -384,9 +460,10 @@ download_from_git_to_tmp_folder() {
 	
 	cd "$TMP_DIR_PATH" || exit
 	
-	shpm_log "     - Cloning from https://$REPOSITORY/$DEP_ARTIFACT_ID into /tmp/$DEP_ARTIFACT_ID ..."
-	shpm_log "        $GIT_CMD clone --branch $DEP_VERSION https://$REPOSITORY/$DEP_ARTIFACT_ID.git"
-	
+	GIT_CMD="$(which git)"
+
+	shpm_log "- Cloning from https://$REPOSITORY/$DEP_ARTIFACT_ID into /tmp/$DEP_ARTIFACT_ID ..."
+	shpm_log "    $GIT_CMD clone --branch $DEP_VERSION https://$REPOSITORY/$DEP_ARTIFACT_ID.git"
 	if git_clone "$REPOSITORY" "$DEP_ARTIFACT_ID" "$DEP_VERSION" &>/dev/null ; then
 		return $TRUE
 	fi
@@ -395,7 +472,7 @@ download_from_git_to_tmp_folder() {
 }
 
 shpm_update_itself_after_git_clone() {
-    shpm_log "     WARN: sh-pm updating itself ..."
+    shpm_log "WARN: sh-pm updating itself ..." "yellow"
     
     local PATH_TO_DEP_IN_TMP
     local PATH_TO_DEP_IN_PROJECT
@@ -433,14 +510,17 @@ shpm_update_itself_after_git_clone() {
 }
 
 set_dependency_repository(){
-	local DEP_ARTIFACT_ID="$1"
-	local R_DEP_REPOSITORY
+	local DEP_ARTIFACT_ID
+	local R2_DEP_REPOSITORY # (R)eference (2)nd: will be attributed to 2nd param by reference	
+	local ARTIFACT_DATA
 	
-	local ARTIFACT_DATA="${DEPENDENCIES[$DEP_ARTIFACT_ID]}"
+	DEP_ARTIFACT_ID="$1"
+	ARTIFACT_DATA="${DEPENDENCIES[$DEP_ARTIFACT_ID]}"
+	
 	if [[ "$ARTIFACT_DATA" == *"@"* ]]; then
-		R_DEP_REPOSITORY=$( echo "$ARTIFACT_DATA" | cut -d "@" -f 2 | xargs ) #xargs is to trim string!
+		R2_DEP_REPOSITORY=$( echo "$ARTIFACT_DATA" | cut -d "@" -f 2 | xargs ) #xargs is to trim string!
 		
-		if [[ "$R_DEP_REPOSITORY" == "" ]]; then
+		if [[ "$R2_DEP_REPOSITORY" == "" ]]; then
 			shpm_log "Error in $DEP_ARTIFACT_ID dependency: Inform a repository after '@' in $DEPENDENCIES_FILENAME"
 			exit 1
 		fi
@@ -449,22 +529,24 @@ set_dependency_repository(){
 		exit 1
 	fi
 	
-	eval "$2=$R_DEP_REPOSITORY"
+	eval "$2=$R2_DEP_REPOSITORY"
 }
 
 set_dependency_version(){
-	local DEP_ARTIFACT_ID="$1"
-	local R_DEP_VERSION	
+	local DEP_ARTIFACT_ID
+	local R2_DEP_VERSION	# (R)eference (2)nd: will be attributed to 2nd param by reference
+	
+	DEP_ARTIFACT_ID="$1"
 	
 	local ARTIFACT_DATA="${DEPENDENCIES[$DEP_ARTIFACT_ID]}"
 	if [[ "$ARTIFACT_DATA" == *"@"* ]]; then
-		R_DEP_VERSION=$( echo "$ARTIFACT_DATA" | cut -d "@" -f 1 | xargs ) #xargs is to trim string!						
+		R2_DEP_VERSION=$( echo "$ARTIFACT_DATA" | cut -d "@" -f 1 | xargs ) #xargs is to trim string!						
 	else
 		shpm_log "Error in $DEP_ARTIFACT_ID dependency: Inform a repository after '@' in $DEPENDENCIES_FILENAME"
 		exit 1
 	fi
 	
-	eval "$2=$R_DEP_VERSION"
+	eval "$2=$R2_DEP_VERSION"
 }
 
 update_dependency() {
@@ -491,14 +573,17 @@ update_dependency() {
 	PATH_TO_DEP_IN_TMP="$TMP_DIR_PATH/$DEP_ARTIFACT_ID"
 	
 	shpm_log "----------------------------------------------------"
-	shpm_log "  Updating $DEP_ARTIFACT_ID to $DEP_VERSION: Start"				
+	reset_g_indent 
+	increase_g_indent 	
+	shpm_log "Updating $DEP_ARTIFACT_ID to $DEP_VERSION: Start"				
 	 
-	if download_from_git_to_tmp_folder "$REPOSITORY" "$DEP_ARTIFACT_ID" "$DEP_VERSION" &>/dev/null ; then
+	increase_g_indent
+	if download_from_git_to_tmp_folder "$REPOSITORY" "$DEP_ARTIFACT_ID" "$DEP_VERSION"; then
 	
 		remove_folder_if_exists "$PATH_TO_DEP_IN_PROJECT"		
 		create_path_if_not_exists "$PATH_TO_DEP_IN_PROJECT"
-					
-		shpm_log "   - Copy artifacts from $PATH_TO_DEP_IN_TMP to $PATH_TO_DEP_IN_PROJECT ..."
+				
+		shpm_log "- Copy artifacts from $PATH_TO_DEP_IN_TMP to $PATH_TO_DEP_IN_PROJECT ..."
 		cp "$PATH_TO_DEP_IN_TMP/src/main/sh/"* "$PATH_TO_DEP_IN_PROJECT"
 		cp "$PATH_TO_DEP_IN_TMP/pom.sh" "$PATH_TO_DEP_IN_PROJECT"
 		
@@ -507,24 +592,33 @@ update_dependency() {
 			shpm_update_itself_after_git_clone "$PATH_TO_DEP_IN_TMP" "$PATH_TO_DEP_IN_PROJECT"
 		fi
 		
-		shpm_log "   - Removing $PATH_TO_DEP_IN_TMP ..."
+		shpm_log "- Removing $PATH_TO_DEP_IN_TMP ..."
+		increase_g_indent
 		remove_folder_if_exists "$PATH_TO_DEP_IN_TMP"
+		decrease_g_indent
 		
 		cd "$ACTUAL_DIR" || exit
 	
 	else 		   		  
-       shpm_log "  $DEP_ARTIFACT_ID was not updated to $DEP_VERSION!"
+       shpm_log "$DEP_ARTIFACT_ID was not updated to $DEP_VERSION!"
 	fi
 	
-	shpm_log "  Update $DEP_ARTIFACT_ID to $DEP_VERSION: Finish"
+	decrease_g_indent 	
+	shpm_log "Update $DEP_ARTIFACT_ID to $DEP_VERSION: Finish"
+	
+	reset_g_indent 
 	
 	cd "$ACTUAL_DIR" || exit 1
+	
+	
 }
 
-build_release() {
+run_release_package() {
 
-    clean_release
+    clean_release "$ROOT_DIR_PATH"
 
+	run_shellcheck 
+	
 	run_all_tests
 	
 	# Verify if are unit test failures
@@ -545,7 +639,6 @@ build_release() {
 	
 	TARGET_FOLDER="$ARTIFACT_ID""-""$VERSION"
 	
-	echo "$TARGET_DIR_PATH/$TARGET_FOLDER"
 	create_path_if_not_exists "$TARGET_DIR_PATH/$TARGET_FOLDER"
 
 	shpm_log "Coping .sh files from $SRC_DIR_PATH/* to $TARGET_DIR_PATH/$TARGET_FOLDER ..."
@@ -553,14 +646,14 @@ build_release() {
 	
 	# if not build itself
 	if [[ ! -f "$SRC_DIR_PATH/shpm.sh" ]]; then
-		shpm_log "Coping pom.sh ..."
-		cp "$ROOT_DIR_PATH/pom.sh" "$TARGET_DIR_PATH/$TARGET_FOLDER"
+		shpm_log "Coping $DEPENDENCIES_FILENAME ..."
+		cp "$ROOT_DIR_PATH/$DEPENDENCIES_FILENAME" "$TARGET_DIR_PATH/$TARGET_FOLDER"
 	else 
-		shpm_log "Creating pom.sh ..."
-	    cp "$SRC_DIR_PATH/../resources/template_pom.sh" "$TARGET_DIR_PATH/$TARGET_FOLDER/pom.sh"
+		shpm_log "Creating $DEPENDENCIES_FILENAME ..."
+	    cp "$SRC_DIR_PATH/../resources/template_$DEPENDENCIES_FILENAME" "$TARGET_DIR_PATH/$TARGET_FOLDER/$DEPENDENCIES_FILENAME"
 	    
-	    shpm_log "Coping bootstrap.sh ..."
-    	cp "$ROOT_DIR_PATH/bootstrap.sh" "$TARGET_DIR_PATH/$TARGET_FOLDER"
+	    shpm_log "Coping $BOOTSTRAP_FILENAME from $ROOT_DIR_PATH ..."
+    	cp "$ROOT_DIR_PATH/$BOOTSTRAP_FILENAME" "$TARGET_DIR_PATH/$TARGET_FOLDER"
 	fi
 	
 	shpm_log "Add sh-pm comments in .sh files ..."
@@ -569,12 +662,12 @@ build_release() {
 		
 	# if not build itself
 	if [[ ! -f $TARGET_DIR_PATH/$TARGET_FOLDER/"shpm.sh" ]]; then
-		shpm_log "Removing bootstrap.sh sourcing command from .sh files ..."
-		sed -i 's/source \.\/bootstrap.sh//g' ./*.sh		
-		sed -i 's/source \.\.\/\.\.\/\.\.\/bootstrap.sh//g' ./*.sh
+		shpm_log "Removing $BOOTSTRAP_FILENAME sourcing command from .sh files ..."
+		sed -i "s/source \.\/$BOOTSTRAP_FILENAME//g" ./*.sh		
+		sed -i "s/source \.\.\/\.\.\/\.\.\/$BOOTSTRAP_FILENAME//g" ./*.sh
 	else
-		shpm_log "Update bootstrap.sh sourcing command from .sh files ..."
-	   	sed -i 's/source \.\.\/\.\.\/\.\.\/bootstrap.sh/source \.\/bootstrap.sh/g' shpm.sh	   	
+		shpm_log "Update $BOOTSTRAP_FILENAME sourcing command from .sh files ..."
+	   	sed -i "s/source \.\.\/\.\.\/\.\.\/$BOOTSTRAP_FILENAME/source \.\/$BOOTSTRAP_FILENAME/g" shpm.sh	   	
 	fi
 	
 	shpm_log "Package: Compacting .sh files ..."
@@ -629,7 +722,7 @@ publish_release() {
 
 	local VERBOSE=$1
 
-	clean_release
+	clean_release "$ROOT_DIR_PATH"
 	
 	build_release
 
@@ -651,70 +744,6 @@ publish_release() {
 	cp "$FILE_PATH" "$RELEASES_PATH" 
 	
 	create_new_remote_branch_from_master_branch "$VERSION" 
-}
-
-send_to_sh_archiva () {
-	local VERBOSE=$1
-
-	if [[ "$SSO_API_AUTHENTICATION_URL" == "" ]]; then
-		shpm_log "In order to publish release, you must define SSO_API_AUTHENTICATION_URL variable in your pom.sh."
-		exit 1
-	fi
-
-	clean_release
-	
-	build_release
-
-	shpm_log_operation "Starting publish release process"
-	
-	local HOST=${REPOSITORY[host]}
-	local PORT=${REPOSITORY[port]}	
-
-	local TARGET_FOLDER=$ARTIFACT_ID"-"$VERSION
-	local TGZ_FILE_NAME=$TARGET_FOLDER".tar.gz"
-	local FILE_PATH=$TARGET_DIR_PATH/$TGZ_FILE_NAME
-
-
-	local TARGET_REPO="https://$HOST:$PORT/sh-archiva/snapshot/$GROUP_ID/$ARTIFACT_ID/$VERSION"
-	shpm_log "----------------------------------------------------------------------------"
-	shpm_log "From: $FILE_PATH"
-	shpm_log "  To: $TARGET_REPO"
-	shpm_log "----------------------------------------------------------------------------"
-	
-	echo Username:
-	read -r USERNAME
-	
-	echo Password:
-	read -r -s PASSWORD
-	
-	shpm_log "Authenticating user \"$USERNAME\" in $SSO_API_AUTHENTICATION_URL ..."
-	#echo "curl -s -X POST -d '{"username" : "'"$USERNAME"'", "password": "'"$PASSWORD"'"}' -H 'Content-Type: application/json' "$SSO_API_AUTHENTICATION_URL""	
-	TOKEN=$( curl -s -X POST -d '{"username" : "'"$USERNAME"'", "password": "'"$PASSWORD"'"}' -H 'Content-Type: application/json' "$SSO_API_AUTHENTICATION_URL" )
-	
-	if [[ "$TOKEN" == "" ]]; then
-		shpm_log "Authentication failed"
-		exit 2
-	else
-		shpm_log "Authentication successfull"
-		shpm_log "Sending release to repository $TARGET_REPO  ..."
-		TOKEN_HEADER="Authorization: Bearer $TOKEN"
-		
-		CURL_OPTIONS="-s"
-		if [[ "$VERBOSE" == "true" ]]; then
-		    CURL_OPTIONS="-v"
-		fi
-			
-		MSG_RETURNED=$( curl "$CURL_OPTIONS" -F file=@"$FILE_PATH" -H "$TOKEN_HEADER" "$TARGET_REPO" )
-		shpm_log "Sended"
-		
-		shpm_log "Return received from repository:"
-		shpm_log "----------------------------------------------------------------------------"
-		shpm_log "$MSG_RETURNED"
-		shpm_log "----------------------------------------------------------------------------"
-		
-		shpm_log "Done"
-	fi 
-
 }
 
 run_shellcheck() {
@@ -743,10 +772,11 @@ run_shellcheck() {
 	    for FILE_TO_CHECK in $SRC_DIR_PATH/*.sh; do        
 	    
 	    	if "$SHELLCHECK_CMD" -x -e SC1090 -e SC1091 "$FILE_TO_CHECK" > "$TARGET_DIR_PATH/$SHELLCHECK_LOG_FILENAME"; then	    	
-	    		shpm_log "$FILE_TO_CHECK passed in shellcheck"
+	    		shpm_log "$FILE_TO_CHECK passed in shellcheck" "green"
 	    	else
-	    		shpm_log "$FILE_TO_CHECK have shellcheck errors."
-	    		shpm_log "See log in $TARGET_DIR_PATH/$SHELLCHECK_LOG_FILENAME"
+	    		shpm_log "FAIL!" "re"
+	    		shpm_log "$FILE_TO_CHECK have shellcheck errors." "red"
+	    		shpm_log "See log in $TARGET_DIR_PATH/$SHELLCHECK_LOG_FILENAME" "red"
 	    		
 	    		sed -i '1s/^/=== ERRORS FOUND BY ShellCheck tool: === /' "$TARGET_DIR_PATH/$SHELLCHECK_LOG_FILENAME"
 	    		
@@ -759,7 +789,7 @@ run_shellcheck() {
 	    	fi
     	done;
     else
-    	shpm_log "WARNING: ShellCheck not found: skipping ShellCheck verification !!!"
+    	shpm_log "WARNING: ShellCheck not found: skipping ShellCheck verification !!!" "yellow"
     fi
     
     shpm_log ""
@@ -769,12 +799,11 @@ run_shellcheck() {
 
 run_all_tests() {
 
-	run_shellcheck
-
-	shpm_log_operation "Searching unit test files to run ..."
-
 	local ACTUAL_DIR
 	ACTUAL_DIR=$(pwd)
+	
+	shpm_log_operation "Searching unit test files to run ..."
+
 
 	if [[ -d "$TEST_DIR_PATH" ]]; then
 	
@@ -799,6 +828,7 @@ run_all_tests() {
 	fi
 	
 	cd "$ACTUAL_DIR" || exit 1
+
 	shpm_log "Done"
 }
 
@@ -868,6 +898,278 @@ init_project_structure() {
 	exit 0
 }
 
+run_coverage_analysis() {
+	local PERCENT
+	local COVERAGE_STR_LOG
+	
+	shpm_log_operation "Test coverage analysis"
+	
+	PERCENT=$(do_coverage_analysis)
+	
+	NOT_HAVE_MINIMUM_COVERAGE=$(echo "${PERCENT} < ${MIN_PERCENT_TEST_COVERAGE}"  | bc -l)
+	
+	COVERAGE_STR_LOG="$PERCENT%. Minimum is $MIN_PERCENT_TEST_COVERAGE% (Value configured in $BOOTSTRAP_FILENAME)"
+	
+	if (( "$NOT_HAVE_MINIMUM_COVERAGE" )); then
+		
+		do_coverage_analysis "-v"
+		
+		shpm_log ""
+		shpm_log "Test Coverage FAIL! $COVERAGE_STR_LOG" "red"
+	else
+	    shpm_log "Test Coverage OK: $COVERAGE_STR_LOG" "green"
+	fi
+	
+	shpm_log ""
+}
 
+do_coverage_analysis() {
+	VERBOSE="$1"
+
+	local TOTAL_FILES_ANALYSED_COUNT	
+	local TOTAL_FUNCTIONS_FOUNDED_COUNT
+	local TOTAL_FUNCTIONS_WITH_TEST_COUNT
+	local TOTAL_COVERAGE
+	local FILE_FUNCTIONS_COUNT
+	local FILE_FUNCTIONS_WITH_TEST_COUNT
+	local FILES_ANALYSIS_LOG_SEPARATOR
+
+	TOTAL_FILES_ANALYSED_COUNT=0
+	TOTAL_FUNCTIONS_FOUNDED_COUNT=0
+	TOTAL_FUNCTIONS_WITH_TEST_COUNT=0
+	TOTAL_COVERAGE=0
+	FILE_FUNCTIONS_COUNT=0
+	FILE_FUNCTIONS_WITH_TEST_COUNT=0
+	
+	FILES_ANALYSIS_LOG_SEPARATOR="----------------------------------------------------------------"
+	
+	if [[ "$VERBOSE" != "-v"  ]]; then
+		SHPM_LOG_DISABLED="$TRUE"
+	fi
+	
+	shpm_log ""
+	shpm_log "Find src file/functions in SRC_DIR_PATH and respective tests file/functions in TEST_DIR_PATH:"
+	shpm_log "  * SRC_DIR_PATH: $SRC_DIR_PATH"
+	shpm_log "  * TEST_DIR_PATH: $TEST_DIR_PATH"
+	shpm_log ""
+	shpm_log "Start test coverage analysis ..."
+	shpm_log ""
+	
+	
+	while IFS=  read -r -d $'\0'; do
+    	SH_FILES_FOUNDED+=("$REPLY")
+	done < <(find "$SRC_DIR_PATH" -name "*.sh" -print0)
+	
+	TOTAL_FILES_ANALYSED_COUNT="${#SH_FILES_FOUNDED[@]}"
+	
+	shpm_log "$FILES_ANALYSIS_LOG_SEPARATOR"
+	
+	for i in "${!SH_FILES_FOUNDED[@]}"; do 
+	
+	    filepath="${SH_FILES_FOUNDED[$i]}"
+	     
+		FILE_FUNCTIONS_COUNT=0
+		FILE_FUNCTIONS_WITH_TEST_COUNT=0
+		 
+		increase_g_indent 
+		filename="$( basename "$filepath" )"
+		
+		FUNCTIONS_TO_TEST=( $(grep -E '^[[:space:]]*([[:alnum:]_]+[[:space:]]*\(\)|function[[:space:]]+[[:alnum:]_]+)' "$filepath" | tr \(\)\}\{ ' ' | sed 's/^[ \t]*//;s/[ \t]*$//') );
+		FILE_FUNCTIONS_COUNT="${#FUNCTIONS_TO_TEST[@]}"
+		TOTAL_FUNCTIONS_FOUNDED_COUNT=$(( TOTAL_FUNCTIONS_FOUNDED_COUNT + FILE_FUNCTIONS_COUNT )) 
+		
+		test_filename="${filename//.sh/}_test.sh"
+		test_filepath="$TEST_DIR_PATH/$test_filename"
+		 
+		shpm_log "FILE: $filename - Analysis Start"
+		
+		shpm_log " - Location: $filepath"
+		if [[ -f "$test_filepath" ]]; then
+	
+			shpm_log " - TestedBy: $test_filepath" 
+			EXISTING_TEST_FUNCTIONS=( $(grep -E '^[[:space:]]*([[:alnum:]_]+[[:space:]]*\(\)|function[[:space:]]+[[:alnum:]_]+)' "$test_filepath" | tr \(\)\}\{ ' ' | sed 's/^[ \t]*//;s/[ \t]*$//') );
+			
+			shpm_log " - Function's coverage analysis:"
+			
+			increase_g_indent 
+			increase_g_indent
+			increase_g_indent
+			
+			FILE_FUNCTIONS_WITH_TEST_COUNT=0
+			
+			for function_name in "${FUNCTIONS_TO_TEST[@]}"; do
+				
+				foundtest=$FALSE
+				for test_function in "${EXISTING_TEST_FUNCTIONS[@]}"; do
+					if [[ "$test_function" == "test_""$function_name" ]]; then
+						foundtest=$TRUE
+						break;
+					fi
+				done;
+				
+				if [[ "$foundtest" == "$FALSE" ]]; then
+				   shpm_log "$function_name ... NO TEST FOUND!" "red"
+				else
+					FILE_FUNCTIONS_WITH_TEST_COUNT=$((FILE_FUNCTIONS_WITH_TEST_COUNT + 1))
+				   shpm_log "$function_name ... OK, test found." "green"
+				fi
+				
+			done
+			
+			TOTAL_FUNCTIONS_WITH_TEST_COUNT=$(( TOTAL_FUNCTIONS_WITH_TEST_COUNT + FILE_FUNCTIONS_WITH_TEST_COUNT ))
+			
+			decrease_g_indent 
+			decrease_g_indent
+			decrease_g_indent
+			
+		else		
+			shpm_log " - TestedBy: NO FILE TEST FOUND!" "red"
+			
+			increase_g_indent 
+			increase_g_indent
+			increase_g_indent
+			
+			for function_name in "${FUNCTIONS_TO_TEST[@]}"; do
+				shpm_log "$function_name ... NO TEST FOUND!" "red"
+			done
+			
+			decrease_g_indent 
+			decrease_g_indent
+			decrease_g_indent
+		fi
+		
+		if [ "$FILE_FUNCTIONS_COUNT" -gt 0 ]; then 
+			PERCENT_COVERAGE=$(bc <<< "scale=2; $FILE_FUNCTIONS_WITH_TEST_COUNT / $FILE_FUNCTIONS_COUNT * 100")
+		else
+			PERCENT_COVERAGE=0
+		fi
+		
+		shpm_log ""
+		shpm_log "Found $FILE_FUNCTIONS_COUNT function(s) in $filename. $FILE_FUNCTIONS_WITH_TEST_COUNT function(s) have tests."
+		shpm_log "Coverage in $filename: $PERCENT_COVERAGE"
+		shpm_log "FILE: $filename - Analysis End"
+	
+		decrease_g_indent
+		
+		shpm_log "$FILES_ANALYSIS_LOG_SEPARATOR"
+	done
+	
+	if [ $TOTAL_FUNCTIONS_WITH_TEST_COUNT -gt 0 ]; then 
+		TOTAL_COVERAGE=$(bc <<< "scale=2; $TOTAL_FUNCTIONS_WITH_TEST_COUNT / $TOTAL_FUNCTIONS_FOUNDED_COUNT * 100")
+	else
+		TOTAL_COVERAGE=0
+	fi
+	
+	shpm_log ""
+	shpm_log "Finish test coverage analysis in $SRC_DIR_PATH:"
+	shpm_log ""
+	shpm_log "Found $TOTAL_FUNCTIONS_FOUNDED_COUNT function(s) in $TOTAL_FILES_ANALYSED_COUNT file(s) analysed. $TOTAL_FUNCTIONS_WITH_TEST_COUNT function(s) have tests."
+	shpm_log ""
+	
+	shpm_log "Total Coverage in %:"
+	SHPM_LOG_DISABLED="$FALSE"
+	
+	echo "$TOTAL_COVERAGE" # this is a "return" value for this function	
+}
+
+compile_sh_project() {
+	
+	if [[ ! -f "$MANIFEST_FILE_PATH" ]]; then
+		shpm_log "$MANIFEST_FILE_PATH not found!"
+		return $FALSE
+	fi
+	
+	local FILE_ENTRY_POINT
+	
+	local FILE_WITH_CAT_SH_LIBS
+	local FILE_WITH_CAT_SH_SRCS
+	local FILE_WITH_SEPARATOR
+	local FILE_WITH_BOOTSTRAP_SANITIZED
+	local COMPILED_FILE_NAME
+	local COMPILED_FILE_PATH
+	
+	local INCLUDE_LIB_AND_FILE
+	local SHEBANG_FIRST_LINE
+	local PATTERN_INCLUDE_BOOTSTRAP_FILE_1
+	local PATTERN_INCLUDE_BOOTSTRAP_FILE_2
+	local PATTERN_INCLUDE_BOOTSTRAP_FILE
+	
+	local SOURCE_DEPSFILE_CMD_IN_BOOTSTRAP_FILE_1
+	local SOURCE_DEPSFILE_CMD_IN_BOOTSTRAP_FILE_2
+	local SOURCE_DEPSFILE_CMD_IN_BOOTSTRAP_FILE
+	
+	FILE_ENTRY_POINT=$( grep "$MANIFEST_P_ENTRY_POINT_FILE" "$MANIFEST_FILE_PATH" | cut -d '=' -f 2 )
+	
+	if [[ -z "$FILE_ENTRY_POINT" ]]; then
+		shpm_log "Inform $MANIFEST_P_ENTRY_POINT_FILE value in file $MANIFEST_FILE_PATH!"
+		return $FALSE
+	fi
+	
+	FILE_WITH_CAT_SH_LIBS="$TMP_DIR_PATH/lib_files_concat"
+	FILE_WITH_CAT_SH_SRCS="$TMP_DIR_PATH/sh_files_concat"
+	FILE_WITH_SEPARATOR="$TMP_DIR_PATH/separator"
+	FILE_WITH_BOOTSTRAP_SANITIZED="$TMP_DIR_PATH/$BOOTSTRAP_FILENAME"
+	
+    create_path_if_not_exists "$TARGET_DIR_PATH"
+   
+    COMPILED_FILE_NAME="$( basename "$ROOT_DIR_PATH" )"".sh"
+	
+	COMPILED_FILE_PATH="$TARGET_DIR_PATH/$COMPILED_FILE_NAME"
+	
+	INCLUDE_LIB_AND_FILE="include_lib\|include_file"
+	SHEBANG_FIRST_LINE="#!/bin/bash\|#!/usr/bin/env bash"
+	
+	PATTERN_INCLUDE_BOOTSTRAP_FILE_1="source ./$BOOTSTRAP_FILENAME"
+	PATTERN_INCLUDE_BOOTSTRAP_FILE_2="source ../../../$BOOTSTRAP_FILENAME"
+	PATTERN_INCLUDE_BOOTSTRAP_FILE="$PATTERN_INCLUDE_BOOTSTRAP_FILE_1\|$PATTERN_INCLUDE_BOOTSTRAP_FILE_2"
+	
+	SOURCE_DEPSFILE_CMD_IN_BOOTSTRAP_FILE_1='source "$ROOT_DIR_PATH/$DEPENDENCIES_FILENAME"'
+	SOURCE_DEPSFILE_CMD_IN_BOOTSTRAP_FILE_2='source "$ROOT_DIR_PATH/'$DEPENDENCIES_FILENAME'"'
+	SOURCE_DEPSFILE_CMD_IN_BOOTSTRAP_FILE="$SOURCE_DEPSFILE_CMD_IN_BOOTSTRAP_FILE_1\|$SOURCE_DEPSFILE_CMD_IN_BOOTSTRAP_FILE_2"
+	
+	printf "\n# #####################################################################################################################################\n" > "$FILE_WITH_SEPARATOR"	
+
+    # Ensure \n in end of file to prevent file concatenation errors
+	find "$LIB_DIR_PATH"  -type f ! -path "*sh-pm*" ! -name "$DEPENDENCIES_FILENAME" ! -name "$SCRIPT_NAME" -name '*.sh' -exec sed -i -e '$a\' {} \;
+	
+	# Concat all .sh lib files that will be used in compile
+	find "$LIB_DIR_PATH"  -type f ! -path "*sh-pm*" ! -name "$DEPENDENCIES_FILENAME" ! -name "$SCRIPT_NAME" -name '*.sh' -exec cat {} + > "$FILE_WITH_CAT_SH_LIBS""_tmp"
+
+	# Remove problematic lines in all .sh lib files
+	grep -v "$PATTERN_INCLUDE_BOOTSTRAP_FILE" <"$FILE_WITH_CAT_SH_LIBS""_tmp" | grep -v "$SHEBANG_FIRST_LINE" | grep -v "$INCLUDE_LIB_AND_FILE" > "$FILE_WITH_CAT_SH_LIBS"
+	remove_file_if_exists "$FILE_WITH_CAT_SH_LIBS""_tmp"
+
+   # Ensure \n in end of file to prevent file concatenation errors
+	find "$SRC_DIR_PATH"  -type f ! -path "sh-pm*" ! -name "$DEPENDENCIES_FILENAME" -name '*.sh' -exec sed -i -e '$a\' {} \;
+	
+	# Concat all .sh src files that will be used in compile
+	find "$SRC_DIR_PATH"  -type f ! -path "sh-pm*" ! -name "$DEPENDENCIES_FILENAME" -name '*.sh' -exec cat {} + > "$FILE_WITH_CAT_SH_SRCS""_tmp"
+	
+	# Remove problematic lines in all .sh lib files
+	grep -v "$PATTERN_INCLUDE_BOOTSTRAP_FILE" <"$FILE_WITH_CAT_SH_SRCS""_tmp" | grep -v "$SHEBANG_FIRST_LINE" | grep -v "$INCLUDE_LIB_AND_FILE" > "$FILE_WITH_CAT_SH_SRCS"
+	remove_file_if_exists "$FILE_WITH_CAT_SH_SRCS""_tmp"
+
+	# Remove problematic lines in bootstrap file
+	grep -v "$SOURCE_DEPSFILE_CMD_IN_BOOTSTRAP_FILE" < "$ROOT_DIR_PATH/$BOOTSTRAP_FILENAME" | grep -v "$SHEBANG_FIRST_LINE" > "$FILE_WITH_BOOTSTRAP_SANITIZED"  
+
+	remove_file_if_exists "$COMPILED_FILE_PATH"
+	
+	
+	cat \
+	"$FILE_WITH_SEPARATOR" "$ROOT_DIR_PATH/$DEPENDENCIES_FILENAME"  \
+	"$FILE_WITH_SEPARATOR" "$FILE_WITH_BOOTSTRAP_SANITIZED" \
+	"$FILE_WITH_SEPARATOR" "$FILE_WITH_CAT_SH_LIBS" \
+	"$FILE_WITH_SEPARATOR" "$FILE_WITH_CAT_SH_SRCS" \
+		> "$COMPILED_FILE_PATH"
+	
+	# Remove extra lines
+	sed -i '/^$/d' "$COMPILED_FILE_PATH"
+	
+	remove_file_if_exists "$FILE_WITH_CAT_SH_LIBS"
+	remove_file_if_exists "$FILE_WITH_CAT_SH_SRCS"
+	remove_file_if_exists "$FILE_WITH_BOOTSTRAP_SANITIZED"
+	
+	chmod 755 "$COMPILED_FILE_PATH"
+}
 
 run_sh_pm "$@"

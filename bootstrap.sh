@@ -23,9 +23,16 @@ DEPENDENCIES_FILENAME="pom.sh"
 TRUE=0
 FALSE=1
 
+# -- Test Coverage ----------------
+MIN_PERCENT_TEST_COVERAGE=80
+
 # -- Main SubPath's ---------------
 if [[ -z "$SRC_DIR_SUBPATH" ]]; then
 	SRC_DIR_SUBPATH="src/main/sh"
+fi
+
+if [[ -z "$SRC_RESOURCES_DIR_SUBPATH" ]]; then
+	SRC_RESOURCES_DIR_SUBPATH="src/main/resources"
 fi
 
 if [[ -z "$LIB_DIR_SUBPATH" ]]; then
@@ -36,11 +43,24 @@ if [[ -z "$TEST_DIR_SUBPATH" ]]; then
 	TEST_DIR_SUBPATH="src/test/sh"
 fi
 
+if [[ -z "$TEST_RESOURCES_DIR_SUBPATH" ]]; then
+	TEST_RESOURCES_DIR_SUBPATH="src/test/resources"
+fi
+
+if [[ -z "$TARGET_DIR_SUBPATH" ]]; then
+	TARGET_DIR_SUBPATH="target"
+fi
+
 # -- Main Path's ------------------
 if [[ -z "$ROOT_DIR_PATH" ]]; then
 	THIS_SCRIPT_FOLDER_PATH="$( dirname "$(realpath "${BASH_SOURCE[0]}")" )"
 	ROOT_DIR_PATH="${THIS_SCRIPT_FOLDER_PATH//$SRC_DIR_SUBPATH/}"		
 	internal_debug "ROOT_DIR_PATH: $ROOT_DIR_PATH"
+fi
+
+if [[ -z "$SRC_RESOURCES_DIR_PATH" ]]; then
+	SRC_RESOURCES_DIR_PATH="$ROOT_DIR_PATH/$SRC_RESOURCES_DIR_SUBPATH"
+	internal_debug "SRC_RESOURCES_DIR_PATH: $SRC_RESOURCES_DIR_PATH"
 fi
 
 if [[ -z "$SRC_DIR_PATH" ]]; then
@@ -56,10 +76,19 @@ fi
 if [[ -z "$TEST_DIR_PATH" ]]; then
 	TEST_DIR_PATH="$ROOT_DIR_PATH/$TEST_DIR_SUBPATH"
 	internal_debug "TEST_DIR_PATH: $TEST_DIR_PATH"
+	
+	FOLDERNAME_4TEST="folder4test"
+	FILENAME_4TEST="file4test"
+	PROJECTNAME_4TEST="sh-project-only-4tests"	
+fi
+
+if [[ -z "$TEST_RESOURCES_DIR_PATH" ]]; then
+	TEST_RESOURCES_DIR_PATH="$ROOT_DIR_PATH/$TEST_RESOURCES_DIR_SUBPATH"
+	internal_debug "TEST_RESOURCES_DIR_PATH: $TEST_RESOURCES_DIR_PATH"
 fi
 
 if [[ -z "$TARGET_DIR_PATH" ]]; then
-	TARGET_DIR_PATH="$ROOT_DIR_PATH/target"
+	TARGET_DIR_PATH="$ROOT_DIR_PATH/$TARGET_DIR_SUBPATH"
 	internal_debug "TARGET_DIR_PATH: $TARGET_DIR_PATH"
 fi
 
@@ -70,14 +99,27 @@ if [[ -z "$TMP_DIR_PATH" ]]; then
 	TMP_DIR_PATH="/tmp"
 	internal_debug "TMP_DIR_PATH: $TMP_DIR_PATH"
 	
-	FOLDERNAME_4TEST="folder4test"
-	FILENAME_4TEST="file4test"
 fi
+
+# -- manifest file -------------------
+MANIFEST_FILENAME="manifest"
+MANIFEST_FILE_PATH="$SRC_RESOURCES_DIR_PATH/$MANIFEST_FILENAME"
+MANIFEST_P_ENTRY_POINT_FILE="entry_point_file"
+MANIFEST_P_ENTRY_POINT_FUNCTION="entry_point_file"
+
+# =================================
+# echo -e colors
+# =================================
+ECHO_COLOR_ESC_CHAR='\033'
+ECHO_COLOR_RED=$ECHO_COLOR_ESC_CHAR'[0;31m'
+ECHO_COLOR_YELLOW=$ECHO_COLOR_ESC_CHAR'[0;93m'
+ECHO_COLOR_GREEN=$ECHO_COLOR_ESC_CHAR'[0;32m'	
+ECHO_COLOR_NC=$ECHO_COLOR_ESC_CHAR'[0m' # No Color
 
 # =================================
 # Load dependencies
 # =================================
-source "$ROOT_DIR_PATH/pom.sh"
+source "$ROOT_DIR_PATH/$DEPENDENCIES_FILENAME"
 
 # =================================
 # Include Management Libs and Files

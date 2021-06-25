@@ -9,4 +9,3 @@ logstring() {
    ensure_number_params_correct 1 $@
    log_info "Content of param received: $1"
 }
-
