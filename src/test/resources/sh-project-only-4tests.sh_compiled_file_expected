@@ -1,0 +1,739 @@
+# #####################################################################################################################################
+GROUP_ID=bash
+ARTIFACT_ID=sh-project-only-4tests
+VERSION=v0.1.0
+declare -A DEPENDENCIES=( \
+    [sh-pm]=v4.2.0@github.com/sh-pm \
+    [sh-logger]=v1.4.0@github.com/sh-pm \
+    [sh-unit]=v1.5.5@github.com/sh-pm \
+    [sh-commons]=v2.2.3@github.com/sh-pm \
+);
+# #####################################################################################################################################
+# =================================
+# Internal Log
+# =================================
+internal_debug() {
+	local ENABLE_DEBUG="false"
+	if [[ "$ENABLE_DEBUG" == "true" ]]; then
+		echo "$1"
+	fi
+}
+# =================================
+# Mandatory Global Variables
+# =================================
+# -- bootstrap file name ----------
+BOOTSTRAP_FILENAME="$(basename "${BASH_SOURCE[0]}")"
+# -- dependencies file name ----------
+DEPENDENCIES_FILENAME="pom.sh"
+# -- "Boolean's" ------------------
+TRUE=0
+FALSE=1
+# -- Test Coverage ----------------
+MIN_PERCENT_TEST_COVERAGE=80
+# -- Main SubPath's ---------------
+if [[ -z "$SRC_DIR_SUBPATH" ]]; then
+	SRC_DIR_SUBPATH="src/main/sh"
+fi
+if [[ -z "$SRC_RESOURCES_DIR_SUBPATH" ]]; then
+	SRC_RESOURCES_DIR_SUBPATH="src/main/resources"
+fi
+if [[ -z "$LIB_DIR_SUBPATH" ]]; then
+	LIB_DIR_SUBPATH="src/lib/sh"
+fi
+if [[ -z "$TEST_DIR_SUBPATH" ]]; then
+	TEST_DIR_SUBPATH="src/test/sh"
+fi
+if [[ -z "$TEST_RESOURCES_DIR_SUBPATH" ]]; then
+	TEST_RESOURCES_DIR_SUBPATH="src/test/resources"
+fi
+if [[ -z "$TARGET_DIR_SUBPATH" ]]; then
+	TARGET_DIR_SUBPATH="target"
+fi
+# -- Main Path's ------------------
+if [[ -z "$ROOT_DIR_PATH" ]]; then
+	THIS_SCRIPT_FOLDER_PATH="$( dirname "$(realpath "${BASH_SOURCE[0]}")" )"
+	ROOT_DIR_PATH="${THIS_SCRIPT_FOLDER_PATH//$SRC_DIR_SUBPATH/}"		
+	internal_debug "ROOT_DIR_PATH: $ROOT_DIR_PATH"
+fi
+if [[ -z "$SRC_RESOURCES_DIR_PATH" ]]; then
+	SRC_RESOURCES_DIR_PATH="$ROOT_DIR_PATH/$SRC_RESOURCES_DIR_SUBPATH"
+	internal_debug "SRC_RESOURCES_DIR_PATH: $SRC_RESOURCES_DIR_PATH"
+fi
+if [[ -z "$SRC_DIR_PATH" ]]; then
+	SRC_DIR_PATH="$ROOT_DIR_PATH/$SRC_DIR_SUBPATH"
+	internal_debug "SRC_DIR_PATH: $SRC_DIR_PATH"
+fi
+if [[ -z "$LIB_DIR_PATH" ]]; then
+	LIB_DIR_PATH="$ROOT_DIR_PATH/$LIB_DIR_SUBPATH"
+	internal_debug "LIB_DIR_PATH: $LIB_DIR_PATH"
+fi
+if [[ -z "$TEST_DIR_PATH" ]]; then
+	TEST_DIR_PATH="$ROOT_DIR_PATH/$TEST_DIR_SUBPATH"
+	internal_debug "TEST_DIR_PATH: $TEST_DIR_PATH"
+	
+	FOLDERNAME_4TEST="folder4test"
+	FILENAME_4TEST="file4test"
+	PROJECTNAME_4TEST="sh-project-only-4tests"	
+fi
+if [[ -z "$TEST_RESOURCES_DIR_PATH" ]]; then
+	TEST_RESOURCES_DIR_PATH="$ROOT_DIR_PATH/$TEST_RESOURCES_DIR_SUBPATH"
+	internal_debug "TEST_RESOURCES_DIR_PATH: $TEST_RESOURCES_DIR_PATH"
+fi
+if [[ -z "$TARGET_DIR_PATH" ]]; then
+	TARGET_DIR_PATH="$ROOT_DIR_PATH/$TARGET_DIR_SUBPATH"
+	internal_debug "TARGET_DIR_PATH: $TARGET_DIR_PATH"
+fi
+if [[ -z "$TMP_DIR_PATH" ]]; then
+    # WARNING: Used in 
+    #   - secure rm -rf executions
+    #   - unit tests
+	TMP_DIR_PATH="/tmp"
+	internal_debug "TMP_DIR_PATH: $TMP_DIR_PATH"
+	
+fi
+# -- manifest file -------------------
+MANIFEST_FILENAME="manifest"
+MANIFEST_FILE_PATH="$SRC_RESOURCES_DIR_PATH/$MANIFEST_FILENAME"
+MANIFEST_P_ENTRY_POINT_FILE="entry_point_file"
+MANIFEST_P_ENTRY_POINT_FUNCTION="entry_point_file"
+# =================================
+# echo -e colors
+# =================================
+ECHO_COLOR_ESC_CHAR='\033'
+ECHO_COLOR_RED=$ECHO_COLOR_ESC_CHAR'[0;31m'
+ECHO_COLOR_YELLOW=$ECHO_COLOR_ESC_CHAR'[0;93m'
+ECHO_COLOR_GREEN=$ECHO_COLOR_ESC_CHAR'[0;32m'	
+ECHO_COLOR_NC=$ECHO_COLOR_ESC_CHAR'[0m' # No Color
+# =================================
+# Load dependencies
+# =================================
+# =================================
+# Include Management Libs and Files
+# =================================
+if [[ -z ${DEPS_INCLUDED+x}  ]]; then
+	declare -A DEPS_INCLUDED=( \
+		
+	);
+fi
+if [[ -z ${FILES_INCLUDED+x}  ]]; then
+	declare -A FILES_INCLUDED=( \
+		
+	);
+fi
+function include_lib () {
+    
+    LIB_TO_INCLUDE=$1
+    
+    # Sanitize param
+	if [[ -z "$LIB_TO_INCLUDE" ]]; then
+		echo "Could't perform include_lib: function receive empty param."
+		exit 1001
+	fi
+	
+	# Validate include
+	# Include library only one time
+	if [[ ! -z "${DEPS_INCLUDED[$LIB_TO_INCLUDE]}" ]]; then
+		internal_debug "include_lib: lib $LIB_TO_INCLUDE already included."
+	fi
+	
+	local DEP_VERSION=$( echo "${DEPENDENCIES[$LIB_TO_INCLUDE]}" | cut -d "@" -f 1 | xargs ) #xargs is to trim string!	
+	local DEP_FOLDER_PATH="$LIB_DIR_PATH/$LIB_TO_INCLUDE""-""$DEP_VERSION"
+	
+	if [[ ! -d "$DEP_FOLDER_PATH" ]]; then
+		echo "Could't perform include_lib: $LIB_TO_INCLUDE not exists in local $LIB_DIR_PATH repository"
+		exit 1002
+	fi
+	
+	for SH_FILE in "$LIB_DIR_PATH/$LIB_TO_INCLUDE""-""$DEP_VERSION"/*; do
+	    if [[ "$(basename "$SH_FILE")" != "$DEPENDENCIES_FILENAME" && "$(basename "$SH_FILE")" != "$BOOTSTRAP_FILENAME" ]]; then
+			include_file "$SH_FILE" 
+		else
+	        internal_debug "$SH_FILE NOT included" 
+		fi
+	done
+	
+	DEPS_INCLUDED[$LIB_TO_INCLUDE]=$TRUE
+}
+function include_file () {
+    
+    FILEPATH_TO_INCLUDE=$1
+    
+    # Sanitize param
+	if [[ -z "$FILEPATH_TO_INCLUDE" ]]; then
+		echo "Could't perform include_file: function receive empty param."
+		exit 1003
+	fi
+	
+	# Validate include
+	# Include file only one time
+	if [[ ! -z "${FILES_INCLUDED[$FILEPATH_TO_INCLUDE]}" ]]; then
+		internal_debug "$FILEPATH_TO_INCLUDE already included."
+	else 
+		source "$FILEPATH_TO_INCLUDE"
+		
+		FILES_INCLUDED[$FILEPATH_TO_INCLUDE]=$TRUE
+		
+	    internal_debug "$FILEPATH_TO_INCLUDE included"	
+	fi	
+}
+# #####################################################################################################################################
+# v1.7.1 - Build with sh-pm
+set_local_ip() {
+	log_info "Try get Local IP ..."
+	COMMON_INTERFACES=("eth0" "wlan0")
+	
+	local IP=''
+	
+	for INTERFACE in "${COMMON_INTERFACES[@]}"
+	do
+        log_debug "Try interface: $INTERFACE"
+		log_debug "Try mode (1)"
+        IP=$(/sbin/ifconfig $INTERFACE | grep 'inet addr:' | cut -d':' -f2 | awk '{print $1}')
+        log_trace "IP: |$IP|"
+        if [[ "$IP" != "" ]]; then
+            break
+        fi
+		log_debug "Try mode (2)"
+        IP=$(/sbin/ifconfig $INTERFACE | grep 'inet ' | awk '{print $2}')
+        log_trace "IP: |$IP|"
+        if [[ "$IP" != "" ]]; then
+            break
+        fi
+	done;
+	
+	eval "$1=$IP"
+}
+set_host_ip() {
+	log_info "Get local IP ..."
+	IP_LOCAL=$( curl --max-time $CURL_TIMEOUT https://ifconfig.me 2>/dev/null )
+	
+	if [[ "$IP_LOCAL" == "" || "$1" == "localhost" ]]; then
+	        log_warn "Unable to get IP using https://ifconfig.me"
+	        IP_LOCAL="127.0.0.1"
+	fi
+	log_info "IP $IP_LOCAL will be used"
+	
+	eval "$1=$IP_LOCAL"
+}
+# v1.7.1 - Build with sh-pm
+##
+ # @return system timestamp in format yyyyMMdd_HHmm_SSS
+ # 
+ # @see sh-logger use a diferent format to log timestamp of lines
+ ##
+get_timestamp() {
+	echo `date +"%Y%m%d_%H%M%S_%s"`
+}
+# v1.7.1 - Build with sh-pm
+##
+ # Shoud be executed inside a target function.
+ #
+ # @return .sh filename with call the function target 
+ ##
+get_script_caller_name(){
+	echo "${BASH_SOURCE[2]}"
+}
+print_delimiter() {
+    local SCRIPT_NAME=${BASH_SOURCE[2]}
+    local MOMENT=$1
+    log_info "========================================================="
+    log_info "            $SCRIPT_NAME - $MOMENT"
+    log_info "========================================================="
+}
+print_start_delimiter() {
+	print_delimiter "Start"
+}
+print_end_delimiter() {
+	print_delimiter "End"
+}  
+print_usage_help() {
+	
+    # Get function name
+	local FUNCTION_NAME=${FUNCNAME[1]}
+    # "main" word means that is not inside function 	
+	if [[ "$FUNCTION_NAME" == "main" ]]; then
+	    # get shell script filename
+		FUNCTION_NAME=$( basename ${BASH_SOURCE[${#BASH_SOURCE[@]} - 1]} )
+	fi
+	
+	# Receive associative array
+	eval "declare -A PARAMS_EXPECTED="${1#*=}
+	
+	local PARAM_NAME=''
+	local PARAM_VALUE=''
+	
+	local PARAM_SINTAX=''
+	
+	echo "---------------------------------------------------------------------------------------------------------"
+    echo "ERROR!"
+    echo "Illegal number of parameters"
+    echo ""
+    echo "Expected:"
+    echo ""
+    
+    for P_EXPECTED in "${!PARAMS_EXPECTED[@]}"; do 
+		PARAM_NAME="$P_EXPECTED"				
+		PARAM_SINTAX="$PARAM_SINTAX [$PARAM_NAME]"
+	done
+	echo "   $FUNCTION_NAME $PARAM_SINTAX"
+	
+	echo ""
+    echo "Received:"
+    echo ""
+    
+    local PARAMS_VALUES_RECEIVED=''
+    
+    # first param is the associative array
+	for ((i = 2; i <= $#; i++ )); do
+		PARAMS_VALUES_RECEIVED="$PARAMS_VALUES_RECEIVED ${!i}"
+	done 
+	
+    echo "   $FUNCTION_NAME $PARAMS_VALUES_RECEIVED"
+    echo "---------------------------------------------------------------------------------------------------------"
+}
+ensure_only_one_instance_run(){	
+	local SCRIPT_NAME=$(get_script_caller_name)	
+	local THIS_SCRIPT_PID=$$
+	
+	log_info "This script PID: $THIS_SCRIPT_PID"
+	
+	# list process excluding current execution 
+	#  - exclude lines with PID of this process;
+	#  - exclude lines with "sudo": sudo imediatelly generate other process with same name! 
+	local NUMBER_OF_INSTANCES=`/bin/ps -fu $USER| grep "$SCRIPT_NAME" | grep -v "$THIS_SCRIPT_PID" | grep -v "grep" | grep -v "sudo" | awk '{print $2}'`  
+	
+	log_info "$NUMBER_OF_INSTANCES"
+	
+	if [[ $NUMBER_OF_INSTANCES > 1 ]]; then
+   		log_error "$SCRIPT_NAME already in execution"
+   		log_error "Current instances:"
+   		#echo "/bin/ps -fu $USER| grep \"$SCRIPT_NAME\" | grep -v \"$THIS_SCRIPT_PID\" | grep -v \"grep\""
+   		log_error `/bin/ps -fu $USER| grep "$SCRIPT_NAME" | grep -v "$THIS_SCRIPT_PID" | grep -v "grep"`
+   		exit 1;
+	fi	
+}
+##
+ # Alias to verify if path is a directory.
+ #
+ # @param $1: path to folder
+ #
+ # @return $TRUE if is folder/directory, $FALSE otherwise 
+ ##
+is_folder() {
+  if [ -d "$1" ]; then
+    # 0 = true
+    return $TRUE 
+  else
+    # 1 = false
+    return $FALSE
+  fi
+}
+##
+ # Alias to verify if file exists.
+ #
+ # @param $1: path to file
+ #
+ # @return $TRUE if exists, $FALSE otherwise 
+ ##
+is_existing_file() {
+	if [ -e $1 ]; then
+		return 0
+	else  
+    	return 1
+	fi
+}
+##
+ # Alias to verify if directory exists.
+ #
+ # @param $1: path to directory
+ #
+ # @return $TRUE if exists, $FALSE otherwise 
+ ##
+is_existing_folder() {
+	if [ -d "$1" ]
+	then
+	    log_trace "Directory $1 exists."
+    	return 0
+    else
+    	log_trace "Directory $1 NOT exists."  
+    	return 1
+	fi
+}
+##
+ # Verify if directory is empty.
+ #
+ # @param $1: path to directory
+ #
+ # @return $TRUE if exists, $FALSE otherwise 
+ ##
+is_empty_folder(){
+	if find "$1" -mindepth 1 -print -quit 2>/dev/null | grep -q .; then
+		return $FALSE;
+	else
+		return $TRUE;
+	fi
+}
+ensure_user_is_superuser(){
+	if [ $(id -u) != "0" ]; then
+    	log_error "You must be a superuser to execute this script!"
+    	exit 1
+	fi
+}
+# v1.7.1 - Build with sh-pm
+string_start_with(){
+	STRING=$1
+	SUBSTRING=$2
+	if [[ $STRING == "$SUBSTRING"* ]]; then
+		return 0;
+	else
+		return 1;
+	fi
+}
+string_end_with(){
+	STRING=$1
+	SUBSTRING=$2
+	if [[ $STRING == *"$SUBSTRING" ]]; then
+		return 0;
+	else
+		return 1;
+	fi
+}
+string_contains(){
+	STRING=$1
+	SUBSTRING=$2
+	if [[ $STRING == *"$SUBSTRING"* ]]; then
+		return 0;
+	else
+		return 1;
+	fi
+}
+string_is_empty() {
+	STRING=$1
+	if [[ $STRING == "" ]]; then
+		return 0;
+	else
+		return 1;
+	fi
+}
+string_trim() {
+	echo $1 | xargs
+}
+string_size() {
+	STRING=$1
+	echo  ${#STRING}
+}
+# v1.7.1 - Build with sh-pm
+##
+ # Inside a function, check if the function received correct number of params expected.
+ # Example:
+ # 
+ #  even_or_odd() {
+ #
+ #     if is_number_params_correct 1 $@; then   <========EXAMPLE OF USE==========
+ #      
+ #       if (( $1 % 2 == 0 )); then
+ #         echo "even"
+ #       else
+ #         echo "odd"
+ #       fi
+ #     else
+ #       echo "Incorrect number of params!"
+ #     fi
+ #  }   
+ #
+ # @param $1: Number of expected params (NUM_PARAMS_EXPECTED)
+ # @param $2: Number of params received in function. You must pass with $#
+ #
+ # @return $TRUE if function have correct number of params, $FALSE otherwise 
+ ##
+is_number_params_correct() {
+	local ARGS=("$@")
+     
+	if [ ${#ARGS[@]} -eq 0 ]; then
+		local NUM_PARAMS_EXPECTED=0
+	else 
+		local NUM_PARAMS_EXPECTED=$1
+	fi
+	
+    local NUM_PARAMS_RECEIVED=$(( ${#ARGS[@]} - 1 )) # the first param is not a param of function under avaliation, is the number of param expected
+	if [ $NUM_PARAMS_RECEIVED -ne $NUM_PARAMS_EXPECTED ]; then	    
+		return $FALSE
+	else
+		return $TRUE
+	fi
+}
+##
+ # Used inside functions: Halt execution if function number of params is incorrect.
+ #
+ # @param $1: Number of expected params (NUM_PARAMS_EXPECTED)
+ # @param $2: All params of function. You must pass with $#
+ #
+ # @return $TRUE if function have correct number of params, $FALSE otherwise 
+ ##
+ensure_number_params_correct(){
+	
+	local ARGS=("$@")
+	
+	if [ ${#ARGS[@]} -eq 0 ]; then
+		local NUM_PARAMS_EXPECTED=0
+	else 
+		local NUM_PARAMS_EXPECTED=$1
+	fi
+	
+    local FUNCTION_NAME=${FUNCNAME[1]}
+    local NUM_PARAMS_RECEIVED=$(( ${#ARGS[@]} - 1 )) # the first param is not a param of function under avaliation, is the number of param expected
+	if [ $NUM_PARAMS_RECEIVED -ne $NUM_PARAMS_EXPECTED ]; then	    
+		print_msg "Illegal number of parameters. Function '$FUNCTION_NAME' expect $NUM_PARAMS_EXPECTED params but receive $NUM_PARAMS_RECEIVED" "$LOG_LEVEL_ERROR" 	    
+		exit 1
+	fi	
+}
+is_number() {
+	local VALUE=$1
+	local REGEX='^[+-]?[0-9]+([.][0-9]+)?$'
+	
+	if ! [[ $VALUE =~ $REGEX ]] ; then
+   		return $FALSE;
+	fi
+	
+	return $TRUE;
+}
+ensure_is_number() {
+	if ! is_number $1; then
+    	log_error "$1 is not a number!"
+    	exit 1
+	fi
+}
+LOG_LEVEL_FATAL="FATAL"
+LOG_LEVEL_ERROR="ERROR"
+LOG_LEVEL_WARN="WARN"
+LOG_LEVEL_INFO="INFO"
+LOG_LEVEL_DEBUG="DEBUG"
+LOG_LEVEL_TRACE="TRACE"
+if [[ -z "$LOG_LEVEL" ]]; then
+	LOG_LEVEL=${ROOT_LOGGER_LEVEL:-$LOG_LEVEL_INFO}
+fi
+ESC_CHAR='\033'
+RED=$ESC_CHAR'[0;31m'
+GREEN=$ESC_CHAR'[0;32m'
+YELLOW=$ESC_CHAR'[0;93m'
+NC=$ESC_CHAR'[0m' # No Color
+try_redirect_log_to_console_and_file(){
+	# If was configured to log in console and file
+	if [[ ! -z $SH_LOGGER_LOG_FILE ]]; then
+		if [[ -f "$SH_LOGGER_LOG_FILE" ]]; then	
+			exec 3>&1 1>> ${SH_LOGGER_LOG_FILE} 2>&1 # redirect stout and stderr to console and file
+		fi			
+	fi
+}
+print_msg(){
+	local MSG=$1
+	local LEVEL=$2
+	local TIMESTAMP=`date +"%Y-%m-%d_%T.%3N"`
+	
+	local FILENAME=$( basename ${BASH_SOURCE[2]} )
+	local LOG_LINE="$TIMESTAMP - $LEVEL - $FILENAME - ${FUNCNAME[2]} - $MSG"
+	try_redirect_log_to_console_and_file
+	
+	if [[ "$LEVEL" == "$LOG_LEVEL_WARN" ]]; then 
+		echo -e "${YELLOW}$LOG_LINE${NC}"
+		return;
+	fi
+	if [[ "$LEVEL" == "$LOG_LEVEL_ERROR" ]]; then 
+		echo -e "${RED}$LOG_LINE${NC}"
+		return;
+	fi
+		
+	echo "$LOG_LINE"
+}
+log_fatal(){
+   if [[ $LOG_LEVEL == "$LOG_LEVEL_TRACE" || $LOG_LEVEL == "$LOG_LEVEL_DEBUG" || $LOG_LEVEL == "$LOG_LEVEL_INFO" || $LOG_LEVEL == "$LOG_LEVEL_WARN"  || $LOG_LEVEL == "$LOG_LEVEL_ERROR" || $LOG_LEVEL == "$LOG_LEVEL_FATAL" ]]; then
+      print_msg "$@" $LOG_LEVEL_FATAL
+   fi
+}
+log_error(){
+   if [[ $LOG_LEVEL == "$LOG_LEVEL_TRACE" || $LOG_LEVEL == "$LOG_LEVEL_DEBUG" || $LOG_LEVEL == "$LOG_LEVEL_INFO" || $LOG_LEVEL == "$LOG_LEVEL_WARN"  || $LOG_LEVEL == "$LOG_LEVEL_ERROR" ]]; then
+      print_msg "$@" $LOG_LEVEL_ERROR
+   fi
+}
+log_warn(){
+   if [[ $LOG_LEVEL == "$LOG_LEVEL_TRACE" || $LOG_LEVEL == "$LOG_LEVEL_DEBUG" || $LOG_LEVEL == "$LOG_LEVEL_INFO" || $LOG_LEVEL == "$LOG_LEVEL_WARN" ]]; then
+      print_msg "$@" $LOG_LEVEL_WARN
+   fi
+}
+log_info(){
+   if [[ $LOG_LEVEL == "$LOG_LEVEL_TRACE" || $LOG_LEVEL == "$LOG_LEVEL_DEBUG" || $LOG_LEVEL == "$LOG_LEVEL_INFO" ]]; then
+      print_msg "$@" $LOG_LEVEL_INFO
+   fi
+}
+log_debug(){
+   if [[ $LOG_LEVEL == "$LOG_LEVEL_TRACE" || $LOG_LEVEL == "$LOG_LEVEL_DEBUG" ]]; then
+      print_msg "$@" $LOG_LEVEL_DEBUG
+   fi
+}
+log_trace(){
+   if [[ $LOG_LEVEL == "$LOG_LEVEL_TRACE" ]]; then
+      print_msg "$@" $LOG_LEVEL_TRACE
+   fi
+}
+# v1.5.0 - Build with sh-pm
+ 
+ESC_CHAR='\033'
+RED=$ESC_CHAR'[0;31m'
+GREEN=$ESC_CHAR'[0;32m'
+YELLOW=$ESC_CHAR'[0;93m'
+NC=$ESC_CHAR'[0m' # No Color
+TEST_STATUS=OK
+get_caller_info(){
+	echo "${BASH_SOURCE[2]} - ${FUNCNAME[2]}"
+}
+assert_equals(){
+	log_trace "PARAM1: |$1|"
+	log_trace "PARAM2: |$2|"
+	if [[ $1 == $2 ]]; then
+		echo -e "`get_caller_info`: ${GREEN}Assert Success!${NC}"
+	else
+		echo -e "`get_caller_info`: ${RED}Assert FAIL!${NC}"
+		echo -e "${RED}     ${FUNCNAME[0]}: |$1| is NOT EQUALs |$2|${NC}" 
+		TEST_STATUS="FAIL"
+	fi
+}
+assert_true(){
+    local VALUE=$1
+    local MSG_IF_FAIL=$2
+    
+    if [[ -z $VALUE ]]; then
+		LAST_FUNCTION_STATUS_EXECUTION=`echo $?`;
+		VALUE=$LAST_FUNCTION_STATUS_EXECUTION
+    fi
+	if [[ $VALUE == "0" ]]; then
+		echo -e "`get_caller_info`: ${GREEN}Assert Success!${NC}"
+		return 0;
+	else
+		if [[ -z $MSG_IF_FAIL ]]; then
+	    	echo -e "`get_caller_info`: ${RED}Assert FAIL!${NC}"
+	    else 
+	    	echo -e "`get_caller_info`: ${RED}Assert FAIL! $1${NC}"
+	    fi
+		echo -e "${RED}     ${FUNCNAME[0]}: |$VALUE| is NOT true${NC}"
+		TEST_STATUS="FAIL"
+		return 1;
+	fi
+}	
+assert_false(){
+	local VALUE=$1
+    local MSG_IF_FAIL=$2
+    
+    if [[ -z $VALUE ]]; then
+		LAST_FUNCTION_STATUS_EXECUTION=`echo $?`;
+		VALUE=$LAST_FUNCTION_STATUS_EXECUTION
+    fi
+	if [[ $VALUE == "0" ]]; then
+		if [[ -z $MSG_IF_FAIL ]]; then
+	    	echo -e "`get_caller_info`: ${RED}Assert FAIL!${NC}"
+	    else 
+	    	echo -e "`get_caller_info`: ${RED}Assert FAIL! $1${NC}"
+	    fi
+	    echo -e "${RED}     ${FUNCNAME[0]}: |$VALUE| is NOT false${NC}"
+		TEST_STATUS="FAIL"
+		return 1;
+	else
+		echo -e "`get_caller_info`: ${GREEN}Assert Success!${NC}"
+		return 0;
+	fi
+}
+assert_fail(){
+    if [[ -z $1 ]]; then
+    	echo -e "`get_caller_info`: ${RED}Assert FAIL!${NC}"
+    else 
+    	echo -e "`get_caller_info`: ${RED}Assert FAIL! $1${NC}"
+    fi
+	TEST_STATUS="FAIL"
+}
+assert_success(){
+    echo -e "`get_caller_info`: ${GREEN}Assert Success!${NC}"	
+}
+ESC_CHAR='\033'
+RED=$ESC_CHAR'[0;31m'
+GREEN=$ESC_CHAR'[0;32m'
+YELLOW=$ESC_CHAR'[0;93m'
+NC=$ESC_CHAR'[0m' # No Color
+string_start_with(){
+	STRING=$1
+	SUBSTRING=$2
+	if [[ $STRING == "$SUBSTRING"* ]]; then
+		return 0;
+	else
+		return 1;
+	fi
+}
+run_all_tests_in_this_script() {
+	TEST_CASE_TOTAL_COUNT=0;
+	TEST_CASE_SUCCESS_COUNT=0;
+	TEST_CASE_FAIL_COUNT=0;
+	SCRIPT_NAME_TO_RUN_TESTS="$(basename "${BASH_SOURCE[1]}")"
+	echo "-------------------------------------------------------------"
+	echo "Running tests in $SCRIPT_NAME_TO_RUN_TESTS ..."
+	echo "-------------------------------------------------------------"
+    if [ $# -eq 0 ];  then
+	    FUNCTIONS_TO_TEST=( `grep -E '^[[:space:]]*([[:alnum:]_]+[[:space:]]*\(\)|function[[:space:]]+[[:alnum:]_]+)' $SCRIPT_NAME_TO_RUN_TESTS | tr \(\)\}\{ ' ' | sed 's/^[ \t]*//;s/[ \t]*$//'` );
+    else 
+    	FUNCTIONS_TO_TEST=( $@ );    
+    fi
+    
+    #echo "Have ${#FUNCTIONS_TO_TEST[*]} test cases"
+    #for FUNCTION_NAME in ${FUNCTIONS_TO_TEST[@]}
+	#do
+	#    echo "|$FUNCTION_NAME|"
+	#done
+	for FUNCTION_NAME in ${FUNCTIONS_TO_TEST[@]}
+	do
+		if (string_start_with $FUNCTION_NAME "test_"); then
+			$FUNCTION_NAME
+		fi
+		
+		#TODO: Fix this part before release - start
+		#if [[ $? != 0 ]]; then
+		#	TEST_CASE_FAIL_COUNT=$((TEST_CASE_FAIL_COUNT+1))
+		#else
+		#	TEST_CASE_SUCCESS_COUNT=$((TEST_CASE_SUCCESS_COUNT+1))
+		#fi
+		#TODO: Fix this part before release - end
+		
+		TEST_CASE_TOTAL_COUNT=$((TEST_CASE_TOTAL_COUNT+1))
+	done
+	
+	echo "-------------------------------------------------------------"
+	echo "Finish. $TEST_CASE_TOTAL_COUNT tests executed"
+	
+	#TODO: Fix this part before release - start
+	#echo " Success: $TEST_CASE_SUCCESS_COUNT"
+	#echo " Fail:    $TEST_CASE_FAIL_COUNT"
+	#TODO: Fix this part before release - end
+	
+	if [[ $TEST_STATUS == "FAIL" ]]; then 
+		echo -e "Result: ${RED}$TEST_STATUS${NC}"
+	else		
+		echo -e "Result: ${GREEN}$TEST_STATUS${NC}"
+	fi
+	echo "-------------------------------------------------------------"
+	
+	if [[ $TEST_STATUS == "FAIL" ]]; then
+		return 1;
+	else		
+		return 0;
+	fi
+	
+}
+# #####################################################################################################################################
+log_info "Test show some informative log text" # log_info is a reusable function inside sh-logger lib
+log_warn "Test show some warning log text" # log_warn is a reusable function inside sh-logger lib
+main() {
+	ensure_number_params_correct 1 "$@"
+	
+	logstring "$1"
+}
+main "$@"
+logstring() {
+   ensure_number_params_correct 1 $@
+   log_info "Content of param received: $1"
+}

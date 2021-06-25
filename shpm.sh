@@ -1074,8 +1074,10 @@ do_coverage_analysis() {
 
 compile_sh_project() {
 	
+	shpm_log_operation "Compile"
+		
 	if [[ ! -f "$MANIFEST_FILE_PATH" ]]; then
-		shpm_log "$MANIFEST_FILE_PATH not found!"
+		shpm_log "\nERROR: $MANIFEST_FILE_PATH not found!\n" "red"
 		return $FALSE
 	fi
 	
@@ -1101,7 +1103,15 @@ compile_sh_project() {
 	FILE_ENTRY_POINT=$( grep "$MANIFEST_P_ENTRY_POINT_FILE" "$MANIFEST_FILE_PATH" | cut -d '=' -f 2 )
 	
 	if [[ -z "$FILE_ENTRY_POINT" ]]; then
-		shpm_log "Inform $MANIFEST_P_ENTRY_POINT_FILE value in file $MANIFEST_FILE_PATH!"
+		shpm_log ""
+		shpm_log "ERROR: Inform \"$MANIFEST_P_ENTRY_POINT_FILE\" propertie value in file: $MANIFEST_FILE_PATH!" "red"
+		shpm_log ""
+		shpm_log "Exemple content of $MANIFEST_FILENAME file:"
+		shpm_log ""
+		shpm_log "$MANIFEST_P_ENTRY_POINT_FILE""=""foo.sh"
+		shpm_log "$MANIFEST_P_ENTRY_POINT_FUNCTION""=""main"
+		shpm_log ""
+		
 		return $FALSE
 	fi
 	
@@ -1110,9 +1120,9 @@ compile_sh_project() {
 	FILE_WITH_SEPARATOR="$TMP_DIR_PATH/separator"
 	FILE_WITH_BOOTSTRAP_SANITIZED="$TMP_DIR_PATH/$BOOTSTRAP_FILENAME"
 	
-    create_path_if_not_exists "$TARGET_DIR_PATH"
+   create_path_if_not_exists "$TARGET_DIR_PATH"
    
-    COMPILED_FILE_NAME="$( basename "$ROOT_DIR_PATH" )"".sh"
+   COMPILED_FILE_NAME="$( basename "$ROOT_DIR_PATH" )"".sh"
 	
 	COMPILED_FILE_PATH="$TARGET_DIR_PATH/$COMPILED_FILE_NAME"
 	
@@ -1128,33 +1138,43 @@ compile_sh_project() {
 	SOURCE_DEPSFILE_CMD_IN_BOOTSTRAP_FILE="$SOURCE_DEPSFILE_CMD_IN_BOOTSTRAP_FILE_1\|$SOURCE_DEPSFILE_CMD_IN_BOOTSTRAP_FILE_2"
 	
 	printf "\n# #####################################################################################################################################\n" > "$FILE_WITH_SEPARATOR"	
+	
+	shpm_log ""	
+	shpm_log "Running compile pipeline:"
+	shpm_log ""
 
-    # Ensure \n in end of file to prevent file concatenation errors
+   shpm_log "- Prepare libraries:"
+   increase_g_indent
+   shpm_log "- Ensure \\\n in end of lib files to prevent file concatenation errors ..."
 	find "$LIB_DIR_PATH"  -type f ! -path "*sh-pm*" ! -name "$DEPENDENCIES_FILENAME" ! -name "$SCRIPT_NAME" -name '*.sh' -exec sed -i -e '$a\' {} \;
 	
-	# Concat all .sh lib files that will be used in compile
+	shpm_log "- Concat all .sh lib files that will be used in compile ..."
 	find "$LIB_DIR_PATH"  -type f ! -path "*sh-pm*" ! -name "$DEPENDENCIES_FILENAME" ! -name "$SCRIPT_NAME" -name '*.sh' -exec cat {} + > "$FILE_WITH_CAT_SH_LIBS""_tmp"
 
-	# Remove problematic lines in all .sh lib files
+	shpm_log "- Remove problematic lines in all .sh lib files ..."
 	grep -v "$PATTERN_INCLUDE_BOOTSTRAP_FILE" <"$FILE_WITH_CAT_SH_LIBS""_tmp" | grep -v "$SHEBANG_FIRST_LINE" | grep -v "$INCLUDE_LIB_AND_FILE" > "$FILE_WITH_CAT_SH_LIBS"
 	remove_file_if_exists "$FILE_WITH_CAT_SH_LIBS""_tmp"
+   decrease_g_indent
 
-   # Ensure \n in end of file to prevent file concatenation errors
+   shpm_log "- Prepare source code:"
+   increase_g_indent
+   shpm_log "- Ensure \\\n in end of src files to prevent file concatenation errors ..."
 	find "$SRC_DIR_PATH"  -type f ! -path "sh-pm*" ! -name "$DEPENDENCIES_FILENAME" -name '*.sh' -exec sed -i -e '$a\' {} \;
 	
-	# Concat all .sh src files that will be used in compile
+	shpm_log "- Concat all .sh src files that will be used in compile ..."
 	find "$SRC_DIR_PATH"  -type f ! -path "sh-pm*" ! -name "$DEPENDENCIES_FILENAME" -name '*.sh' -exec cat {} + > "$FILE_WITH_CAT_SH_SRCS""_tmp"
 	
-	# Remove problematic lines in all .sh lib files
+	shpm_log "- Remove problematic lines in all .sh src files ..."
 	grep -v "$PATTERN_INCLUDE_BOOTSTRAP_FILE" <"$FILE_WITH_CAT_SH_SRCS""_tmp" | grep -v "$SHEBANG_FIRST_LINE" | grep -v "$INCLUDE_LIB_AND_FILE" > "$FILE_WITH_CAT_SH_SRCS"
 	remove_file_if_exists "$FILE_WITH_CAT_SH_SRCS""_tmp"
 
-	# Remove problematic lines in bootstrap file
+	shpm_log "- Remove problematic lines in $ROOT_DIR_PATH/$BOOTSTRAP_FILENAME file ..."
 	grep -v "$SOURCE_DEPSFILE_CMD_IN_BOOTSTRAP_FILE" < "$ROOT_DIR_PATH/$BOOTSTRAP_FILENAME" | grep -v "$SHEBANG_FIRST_LINE" > "$FILE_WITH_BOOTSTRAP_SANITIZED"  
+   decrease_g_indent
 
 	remove_file_if_exists "$COMPILED_FILE_PATH"
 	
-	
+	shpm_log "- Generate compiled file ..."
 	cat \
 	"$FILE_WITH_SEPARATOR" "$ROOT_DIR_PATH/$DEPENDENCIES_FILENAME"  \
 	"$FILE_WITH_SEPARATOR" "$FILE_WITH_BOOTSTRAP_SANITIZED" \
@@ -1162,14 +1182,25 @@ compile_sh_project() {
 	"$FILE_WITH_SEPARATOR" "$FILE_WITH_CAT_SH_SRCS" \
 		> "$COMPILED_FILE_PATH"
 	
-	# Remove extra lines
+	shpm_log "- Remove extra lines ..."
 	sed -i '/^$/d' "$COMPILED_FILE_PATH"
 	
+	shpm_log "- Remove tmp files ..."
+	increase_g_indent
 	remove_file_if_exists "$FILE_WITH_CAT_SH_LIBS"
 	remove_file_if_exists "$FILE_WITH_CAT_SH_SRCS"
 	remove_file_if_exists "$FILE_WITH_BOOTSTRAP_SANITIZED"
+	decrease_g_indent
 	
+	shpm_log "- Grant permissions in compiled file ..."
 	chmod 755 "$COMPILED_FILE_PATH"
+
+   shpm_log ""	
+	shpm_log "Compile pipeline finish."
+   shpm_log ""
+	shpm_log "Compile successfull! File generated in:" "green"
+	shpm_log "  $COMPILED_FILE_PATH"
+	shpm_log ""
 }
 
 run_sh_pm "$@"
